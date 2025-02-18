@@ -1,0 +1,92 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<head>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet-routing-machine/3.2.12/leaflet-routing-machine.min.js"></script>
+    <style>
+        #map {
+            height: 600px;
+            width: 100%;
+        }
+        #directions {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            min-height: 100px;
+            background: #f9f9f9;
+        }
+    </style>
+</head>
+
+<div id="map"></div>
+<div id="directions"><strong>Directions will be shown here.</strong></div>
+
+{% block extra_js %}
+<script>
+    document.addEventListener("DOMContentLoaded", function () {
+        var map = L.map('map').setView([0, 0], 10);
+        var routingControl = null;
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(function (position) {
+                var userLat = position.coords.latitude;
+                var userLon = position.coords.longitude;
+                
+                var userMarker = L.marker([userLat, userLon]).addTo(map)
+                    .bindPopup("You are here").openPopup();
+                
+                map.setView([userLat, userLon], 10);
+                
+                var overpassUrl = `https://overpass-api.de/api/interpreter?data=[out:json];node["amenity"="hospital"](around:30000,${userLat},${userLon});out;`;
+                
+                fetch(overpassUrl)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.elements.length === 0) {
+                            console.warn("No hospitals found in this area.");
+                        }
+                        
+                        data.elements.forEach(hospital => {
+                            var hospitalMarker = L.marker([hospital.lat, hospital.lon])
+                                .addTo(map)
+                                .bindPopup(hospital.tags.name || "Unknown Hospital")
+                                .on('click', function () {
+                                    if (routingControl) {
+                                        map.removeControl(routingControl);
+                                    }
+                                    routingControl = L.Routing.control({
+                                        waypoints: [
+                                            L.latLng(userLat, userLon),
+                                            L.latLng(hospital.lat, hospital.lon)
+                                        ],
+                                        routeWhileDragging: true,
+                                        createMarker: function() { return null; }
+                                    }).addTo(map);
+
+                                    routingControl.on('routesfound', function (e) {
+                                        var routes = e.routes[0].instructions;
+                                        var directionsDiv = document.getElementById('directions');
+                                        directionsDiv.innerHTML = "<strong>Directions:</strong><br>" + routes.map(r => r.text).join("<br>");
+                                    });
+                                });
+                        });
+                    })
+                    .catch(error => console.error('Error fetching hospital data:', error));
+            }, function (error) {
+                console.error("Geolocation error:", error);
+                alert("Failed to get your location. Please enable location services.");
+            });
+        } else {
+            alert("Geolocation is not supported by your browser.");
+        }
+    });
+</script>
+{% endblock %}
+{% endblock %}
